@@ -58,6 +58,9 @@ input_prompt  = ""
 input_done    = False
 input_masked  = False
 
+query_buffer  = ""
+query_mode    = False
+
 
 def clamp(val, lo, hi):
     return max(lo, min(hi, val))
@@ -245,6 +248,18 @@ def show_input_screen():
     M5.Lcd.drawString(display_buf + "_", 4, 46)
 
 
+def show_query_screen():
+    M5.Lcd.fillScreen(0x000000)
+    M5.Lcd.setTextColor(0x00ff00, 0x000000)
+    M5.Lcd.setTextSize(1)
+    M5.Lcd.drawString("Send Query", 4, 8)
+    M5.Lcd.drawString("ENT=send  ESC=cancel  DEL=backspace", 4, 20)
+    M5.Lcd.setTextSize(2)
+    display_buf = query_buffer[-18:]
+    M5.Lcd.fillRect(0, 40, SCREEN_W, 30, 0x222222)
+    M5.Lcd.drawString(display_buf + "_", 4, 46)
+
+
 def on_mqtt_message(topic, msg):
     global topic_msgs, active_topic
     for i, t in enumerate(TOPICS):
@@ -258,6 +273,7 @@ def on_mqtt_message(topic, msg):
 def kb_pressed_event(kb_0):
     global circle_x, circle_y, start_ax, start_ay
     global smooth_ax, smooth_ay, input_buffer, input_mode, input_done
+    global query_buffer, query_mode, active_topic
 
     if kb is None:
         return
@@ -273,6 +289,43 @@ def kb_pressed_event(kb_0):
         elif len(key) == 1 and ord(key) >= 32:
             input_buffer += key
             show_input_screen()
+        return
+
+    if query_mode:
+        if key == '\n' or key == '\r':
+            # Send the query
+            if query_buffer and mqtt:
+                mqtt.publish(b"cardputer/query", query_buffer.encode())
+            query_buffer = ""
+            query_mode = False
+            # Redraw the active topic or main screen
+            if active_topic >= 0:
+                show_topic_message(active_topic)
+            else:
+                M5.Lcd.fillScreen(0x000000)
+                draw_dots()
+        elif key == '\x1b':  # ESC key
+            query_buffer = ""
+            query_mode = False
+            # Redraw the active topic or main screen
+            if active_topic >= 0:
+                show_topic_message(active_topic)
+            else:
+                M5.Lcd.fillScreen(0x000000)
+                draw_dots()
+        elif key == '\x08' or key == '\x7f':
+            query_buffer = query_buffer[:-1]
+            show_query_screen()
+        elif len(key) == 1 and ord(key) >= 32:
+            query_buffer += key
+            show_query_screen()
+        return
+
+    # Start query mode when typing (outside of input_mode)
+    if not query_mode and len(key) == 1 and ord(key) >= 32 and key not in ',.;/`':
+        query_mode = True
+        query_buffer = key
+        show_query_screen()
         return
 
     if key == '/':
@@ -389,6 +442,11 @@ async def main():
 
     while True:
         M5.update()
+
+        # Skip normal updates when in query mode
+        if query_mode:
+            await asyncio.sleep_ms(FRAME_MS)
+            continue
 
         try:
             mqtt.check_msg()
