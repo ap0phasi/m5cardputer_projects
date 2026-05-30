@@ -2,12 +2,18 @@ import urllib.request
 import feedparser
 import paho.mqtt.client as mqtt
 import time
+import json
+
 
 # Base api query url
 base_url = 'http://export.arxiv.org/api/query?'
 MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883
-MQTT_TOPIC = "cardputer/corner/0"
+MQTT_TOPICS = [
+                "cardputer/corner/0",
+                "cardputer/corner/1",
+                "cardputer/corner/2"
+                ]
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
@@ -24,7 +30,7 @@ client.connect(MQTT_BROKER, MQTT_PORT, 60)
 # Search parameters
 search_query = 'all:electron'  # search for electron in all fields
 start = 0                      # retrieve the first 5 results
-max_results = 5
+max_results = len(MQTT_TOPICS)
 
 query = 'search_query=%s&start=%i&max_results=%i' % (search_query,
                                                      start,
@@ -35,8 +41,7 @@ response = urllib.request.urlopen(base_url + query).read()
 # parse the response using feedparser
 feed = feedparser.parse(response)
 
-# print out feed information
-print('Feed title:', feed.feed.title)
+
 print('Feed entries:', len(feed.entries))
 print('\nFirst entry:')
 if feed.entries:
@@ -48,17 +53,17 @@ if feed.entries:
 MESSAGE_LEN = 50
 client.loop_start()  # Start MQTT loop in background
 
-print(f"\nStreaming to MQTT topic: {MQTT_TOPIC}")
-print("=" * 50)
-
+io = 0
 while True:
     # Stream the summary in chunks
-    for i in range(0, len(entry.summary)-MESSAGE_LEN, 2):
-        payload = entry.summary[i:i+MESSAGE_LEN]
-        print(payload)
+    for ie, entry in enumerate(feed.entries):
+        MQTT_TOPIC = MQTT_TOPICS[ie]
+        i = io % len(entry.summary)
+        payload = json.dumps({entry.title:entry.summary[i:i+MESSAGE_LEN]})
         result = client.publish(MQTT_TOPIC, payload)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             print(f"Failed to publish: {result.rc}")
+        io+=1
         time.sleep(0.1) # Slower for better readability
 
 print("\nStreaming complete!")
