@@ -50,7 +50,7 @@ if feed.entries:
     print('Published:', entry.published)
     print('Summary:', entry.summary)
 
-MESSAGE_LEN = 50
+MESSAGE_LEN = 100
 client.loop_start()  # Start MQTT loop in background
 
 io = 0
@@ -59,7 +59,7 @@ while True:
     for ie, entry in enumerate(feed.entries):
         MQTT_TOPIC = MQTT_TOPICS[ie]
         i = io % len(entry.summary)
-        payload = json.dumps({entry.title:entry.summary[i:i+MESSAGE_LEN]})
+        payload = json.dumps({'title':entry.title, 'text':entry.summary[i:i+MESSAGE_LEN]})
         result = client.publish(MQTT_TOPIC, payload)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             print(f"Failed to publish: {result.rc}")

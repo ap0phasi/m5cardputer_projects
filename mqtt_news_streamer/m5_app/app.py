@@ -85,6 +85,42 @@ def draw_dots(highlight=-1):
             M5.Lcd.fillCircle(t["x"], t["y"], DOT_RADIUS, 0x555555)
 
 
+def wrap_text(text, max_chars):
+    """Wrap text to fit within max_chars per line."""
+    words = text.split(" ")
+    lines = []
+    line = ""
+    
+    for word in words:
+        # If word itself is too long, break it
+        if len(word) > max_chars:
+            if line:
+                lines.append(line)
+                line = ""
+            # Break long word into chunks
+            for i in range(0, len(word), max_chars - 1):
+                chunk = word[i:i + max_chars - 1]
+                if i + max_chars - 1 < len(word):
+                    lines.append(chunk + "-")
+                else:
+                    line = chunk
+            continue
+        
+        # Try to add word to current line
+        test_line = (line + " " + word).strip() if line else word
+        if len(test_line) <= max_chars:
+            line = test_line
+        else:
+            if line:
+                lines.append(line)
+            line = word
+    
+    if line:
+        lines.append(line)
+    
+    return lines
+
+
 def show_topic_message(index):
     M5.Lcd.fillScreen(0x000000)
     msg = topic_msgs[index]
@@ -96,58 +132,88 @@ def show_topic_message(index):
         pass
 
     if data and isinstance(data, dict):
-        y = 4
+        y = 3
         for k, v in data.items():
-            if y > SCREEN_H - 10:
+            if y > SCREEN_H - 15:
                 break
+            
+            # Draw key
             M5.Lcd.setTextSize(1)
             M5.Lcd.setTextColor(0xffcc00, 0x000000)
-            M5.Lcd.drawString(str(k).upper(), 4, y)
-            y += 10
-            M5.Lcd.setTextSize(2)
+            key_str = str(k).upper()
+            if len(key_str) > 38:
+                key_str = key_str[:37] + "~"
+            M5.Lcd.drawString(key_str, 2, y)
+            y += 11
+            
+            # Draw value with wrapping
+            M5.Lcd.setTextSize(1)
             M5.Lcd.setTextColor(0xffffff, 0x000000)
             val_str = str(v)
-            if len(val_str) > 18:
-                val_str = val_str[:17] + "~"
-            M5.Lcd.drawString(val_str, 4, y)
-            y += 22
-            if y < SCREEN_H - 10:
+            val_lines = wrap_text(val_str, 38)
+            
+            for vline in val_lines[:3]:  # Max 3 lines per value
+                if y > SCREEN_H - 12:
+                    break
+                M5.Lcd.drawString(vline, 6, y)
+                y += 11
+            
+            # Draw separator
+            if y < SCREEN_H - 12:
                 M5.Lcd.drawLine(0, y, SCREEN_W, y, 0x333333)
                 y += 4
 
     elif data and isinstance(data, list):
-        M5.Lcd.setTextSize(2)
+        M5.Lcd.setTextSize(1)
         M5.Lcd.setTextColor(0xffffff, 0x000000)
-        y = 4
+        y = 3
         for i, item in enumerate(data):
-            if y > SCREEN_H - 18:
+            if y > SCREEN_H - 12:
                 break
-            row = "{}: {}".format(i + 1, str(item))
-            if len(row) > 18:
-                row = row[:17] + "~"
-            M5.Lcd.drawString(row, 4, y)
-            y += 24
+            
+            # Format list item with index
+            item_str = str(item)
+            prefix = "{}. ".format(i + 1)
+            
+            # Wrap the item text
+            max_chars = 38 - len(prefix)
+            item_lines = wrap_text(item_str, max_chars)
+            
+            # Draw first line with prefix
+            if item_lines:
+                M5.Lcd.drawString(prefix + item_lines[0], 2, y)
+                y += 11
+                
+                # Draw remaining lines indented
+                for line in item_lines[1:3]:  # Max 2 more lines
+                    if y > SCREEN_H - 12:
+                        break
+                    M5.Lcd.drawString("   " + line, 2, y)
+                    y += 11
+            
+            y += 4  # Extra spacing between items
 
     else:
-        M5.Lcd.setTextSize(2)
+        # Plain text message
+        M5.Lcd.setTextSize(1)
         M5.Lcd.setTextColor(0xffffff, 0x000000)
-        words = msg.split(" ")
-        lines = []
-        line  = ""
-        for word in words:
-            if len(line) + len(word) + 1 <= 20:
-                line = (line + " " + word).strip()
-            else:
-                if line:
-                    lines.append(line)
-                line = word
-        if line:
-            lines.append(line)
-        y = max(10, (SCREEN_H - len(lines) * 22) // 2)
-        for l in lines:
-            x = max(2, (SCREEN_W - len(l) * 12) // 2)
-            M5.Lcd.drawString(l, x, y)
-            y += 22
+        
+        # Wrap text to fit screen width (38 chars for size 1)
+        lines = wrap_text(msg, 38)
+        
+        # Calculate starting Y to center vertically
+        line_height = 12
+        total_height = len(lines) * line_height
+        y = max(3, (SCREEN_H - total_height) // 2)
+        
+        for line in lines:
+            if y > SCREEN_H - 12:
+                break
+            # Center each line horizontally
+            char_width = 6  # Approximate width for text size 1
+            x = max(2, (SCREEN_W - len(line) * char_width) // 2)
+            M5.Lcd.drawString(line, x, y)
+            y += line_height
 
     # Always draw dots on top so you can see where you are
     draw_dots(highlight=index)
