@@ -13,7 +13,8 @@ MQTT_QUERY_TOPIC = "cardputer/query"
 MQTT_TOPICS = [
                 "cardputer/corner/0",
                 "cardputer/corner/1",
-                "cardputer/corner/2"
+                "cardputer/corner/2",
+                "cardputer/corner/3"
                 ]
 
 # Global state
@@ -49,21 +50,28 @@ def fetch_feed(query_string):
                                                          start,
                                                          max_results)
     print(f"Fetching: {query}")
-    # perform a GET request using the base_url and query
-    response = urllib.request.urlopen(base_url + query).read()
     
-    # parse the response using feedparser
-    parsed_feed = feedparser.parse(response)
+    try:
+        # perform a GET request using the base_url and query
+        response = urllib.request.urlopen(base_url + query, timeout=10).read()
+        
+        # parse the response using feedparser
+        parsed_feed = feedparser.parse(response)
+        
+        print(f'Feed entries: {len(parsed_feed.entries)}')
+        if parsed_feed.entries:
+            entry = parsed_feed.entries[0]
+            print('First entry:')
+            print('Title:', entry.title)
+            print('Published:', entry.published)
+            print('Summary:', entry.summary[:100] + '...')
+        
+        return parsed_feed
     
-    print(f'Feed entries: {len(parsed_feed.entries)}')
-    if parsed_feed.entries:
-        entry = parsed_feed.entries[0]
-        print('First entry:')
-        print('Title:', entry.title)
-        print('Published:', entry.published)
-        print('Summary:', entry.summary[:100] + '...')
-    
-    return parsed_feed
+    except Exception as e:
+        print(f"ERROR fetching feed: {e}")
+        print("Continuing with previous feed...")
+        return None
 
 
 client = mqtt.Client()
@@ -84,9 +92,13 @@ try:
         # Check if we need to requery
         if requery_flag:
             print(f"\nRequerying with: {search_query}")
-            feed = fetch_feed(search_query)
+            new_feed = fetch_feed(search_query)
+            if new_feed and new_feed.entries:  # Only update if fetch succeeded
+                feed = new_feed
+                io = 0  # Reset streaming position
+            else:
+                print("Failed to fetch new feed, keeping existing content")
             requery_flag = False
-            io = 0  # Reset streaming position
         
         # Stream the summary in chunks
         if feed and feed.entries:

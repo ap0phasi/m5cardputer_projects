@@ -29,7 +29,7 @@ TOPICS = [
     {"topic": b"cardputer/corner/0", "x":  40, "y":  30},
     {"topic": b"cardputer/corner/1", "x": 200, "y":  30},
     {"topic": b"cardputer/corner/2", "x":  40, "y": 100},
-    {"topic": b"testtopic/bdc",      "x": 200, "y": 100},
+    {"topic": b"cardputer/corner/3", "x": 200, "y": 100},
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -125,6 +125,12 @@ def wrap_text(text, max_chars):
 
 
 def show_topic_message(index):
+    # First hide widgets to prevent them from rendering on top
+    if rect0:
+        rect0.setVisible(False)
+    if circle0:
+        circle0.setVisible(False)
+    
     M5.Lcd.fillScreen(0x000000)
     msg = topic_msgs[index]
 
@@ -473,13 +479,20 @@ async def main():
         if hovered != active_topic:
             active_topic = hovered
             if hovered == -1:
+                # Show widgets when in main navigation
+                if rect0:
+                    rect0.setVisible(True)
+                if circle0:
+                    circle0.setVisible(True)
                 M5.Lcd.fillScreen(0x000000)
                 draw_dots()
             else:
                 show_topic_message(hovered)
 
-        rect0.setCursor(x=round(sq_x), y=round(sq_y))
-        circle0.setCursor(x=circle_x, y=circle_y)
+        # Only update widget positions when visible (in main mode)
+        if active_topic == -1:
+            rect0.setCursor(x=round(sq_x), y=round(sq_y))
+            circle0.setCursor(x=circle_x, y=circle_y)
 
         await asyncio.sleep_ms(FRAME_MS)
 
