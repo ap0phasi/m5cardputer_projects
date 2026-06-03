@@ -3,7 +3,7 @@ import feedparser
 import paho.mqtt.client as mqtt
 import time
 import json
-
+import random
 
 # RSS feed URLs
 RSS_FEEDS = {
@@ -69,7 +69,7 @@ def fetch_feed(feed_name):
             desc = entry.get('summary', entry.get('description', 'No description'))
             print('Summary:', desc[:100] + '...' if len(desc) > 100 else desc)
         
-        return parsed_feed
+        return random.sample(parsed_feed.entries, len(MQTT_TOPICS))
     
     except Exception as e:
         print(f"ERROR fetching feed: {e}")
@@ -96,7 +96,7 @@ try:
         if requery_flag:
             print(f"\nRequerying with: {current_feed}")
             new_feed = fetch_feed(current_feed)
-            if new_feed and new_feed.entries:  # Only update if fetch succeeded
+            if new_feed :  # Only update if fetch succeeded
                 feed = new_feed
                 io = 0  # Reset streaming position
             else:
@@ -104,8 +104,8 @@ try:
             requery_flag = False
         
         # Stream the summary in chunks
-        if feed and feed.entries:
-            for ie, entry in enumerate(feed.entries[:len(MQTT_TOPICS)]):
+        if feed :
+            for ie, entry in enumerate(feed):
                 MQTT_TOPIC = MQTT_TOPICS[ie]
                 # Get description/summary from entry
                 desc = entry.get('summary', entry.get('description', 'No description available'))
