@@ -5,8 +5,13 @@ import time
 import json
 
 
-# Base api query url
-base_url = 'http://export.arxiv.org/api/query?'
+# RSS feed URLs
+RSS_FEEDS = {
+    'bbc': 'http://feeds.bbci.co.uk/news/rss.xml',
+    'hn': 'https://news.ycombinator.com/rss',
+    'reddit': 'https://www.reddit.com/.rss'
+}
+
 MQTT_BROKER = "broker.emqx.io"
 MQTT_PORT = 1883
 MQTT_QUERY_TOPIC = "cardputer/query"
@@ -20,7 +25,7 @@ MQTT_TOPICS = [
 # Global state
 feed = None
 requery_flag = False
-search_query = 'all:ai'  # default search query
+current_feed = 'bbc'  # default feed
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
@@ -33,27 +38,24 @@ def on_connect(client, userdata, flags, rc):
         print(f"Failed to connect, return code {rc}")
 
 def on_message(client, userdata, msg):
-    global requery_flag, search_query
+    global requery_flag, current_feed
     if msg.topic == MQTT_QUERY_TOPIC:
-        new_query = msg.payload.decode('utf-8').strip()
-        if new_query:
-            print(f"\nReceived query: '{new_query}'")
-            search_query = f'all:{new_query}'
+        new_feed = msg.payload.decode('utf-8').strip().lower()
+        if new_feed in RSS_FEEDS:
+            print(f"\nReceived feed change: '{new_feed}'")
+            current_feed = new_feed
             requery_flag = True
+        else:
+            print(f"\nUnknown feed: '{new_feed}'. Available: {list(RSS_FEEDS.keys())}")
 
-def fetch_feed(query_string):
-    """Fetch and parse the feed for a given query."""
-    start = 0
-    max_results = len(MQTT_TOPICS)
-    
-    query = 'search_query=%s&start=%i&max_results=%i' % (query_string,
-                                                         start,
-                                                         max_results)
-    print(f"Fetching: {query}")
+def fetch_feed(feed_name):
+    """Fetch and parse the RSS feed."""
+    feed_url = RSS_FEEDS.get(feed_name, RSS_FEEDS['bbc'])
+    print(f"Fetching: {feed_name} ({feed_url})")
     
     try:
-        # perform a GET request using the base_url and query
-        response = urllib.request.urlopen(base_url + query, timeout=10).read()
+        # perform a GET request
+        response = urllib.request.urlopen(feed_url, timeout=10).read()
         
         # parse the response using feedparser
         parsed_feed = feedparser.parse(response)
@@ -63,8 +65,9 @@ def fetch_feed(query_string):
             entry = parsed_feed.entries[0]
             print('First entry:')
             print('Title:', entry.title)
-            print('Published:', entry.published)
-            print('Summary:', entry.summary[:100] + '...')
+            # Get description/summary
+            desc = entry.get('summary', entry.get('description', 'No description'))
+            print('Summary:', desc[:100] + '...' if len(desc) > 100 else desc)
         
         return parsed_feed
     
@@ -81,9 +84,9 @@ print(f"Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
 client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
 # Initial fetch
-feed = fetch_feed(search_query)
+feed = fetch_feed(current_feed)
 
-MESSAGE_LEN = 100
+MESSAGE_LEN = 200
 client.loop_start()  # Start MQTT loop in background
 
 io = 0
@@ -91,8 +94,8 @@ try:
     while True:
         # Check if we need to requery
         if requery_flag:
-            print(f"\nRequerying with: {search_query}")
-            new_feed = fetch_feed(search_query)
+            print(f"\nRequerying with: {current_feed}")
+            new_feed = fetch_feed(current_feed)
             if new_feed and new_feed.entries:  # Only update if fetch succeeded
                 feed = new_feed
                 io = 0  # Reset streaming position
@@ -102,16 +105,19 @@ try:
         
         # Stream the summary in chunks
         if feed and feed.entries:
-            for ie, entry in enumerate(feed.entries):
+            for ie, entry in enumerate(feed.entries[:len(MQTT_TOPICS)]):
                 MQTT_TOPIC = MQTT_TOPICS[ie]
-                i = io % len(entry.summary)
-                payload = json.dumps({'title':entry.title, 'text':entry.summary[i:i+MESSAGE_LEN]})
+                # Get description/summary from entry
+                desc = entry.get('summary', entry.get('description', 'No description available'))
+                entry_words = desc.split(" ")
+                i = io % len(entry_words)
+                payload = json.dumps({'title':entry.title, 'text':" ".join(entry_words[i:i+MESSAGE_LEN])})
                 result = client.publish(MQTT_TOPIC, payload)
                 if result.rc != mqtt.MQTT_ERR_SUCCESS:
                     print(f"Failed to publish: {result.rc}")
             io += 1
         
-        time.sleep(0.1)  # Slower for better readability
+        time.sleep(0.5)  # Slower for better readability
         
 except KeyboardInterrupt:
     print("\nShutting down...")
